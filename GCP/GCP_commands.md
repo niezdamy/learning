@@ -188,3 +188,11 @@ gcloud compute forwarding-rules create http-content-rule \
  --global \
  --target-http-proxy=http-lb-proxy \
  --ports=80
+
+### Firebase commands
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+ --member=user:student-01-bae7fc399609@qwiklabs.net --role=roles/logging.viewer
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+ --member=user:student-01-bae7fc399609@qwiklabs.net --role roles/source.writer
