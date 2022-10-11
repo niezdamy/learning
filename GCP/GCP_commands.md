@@ -196,3 +196,10 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 
 gcloud projects add-iam-policy-binding $PROJECT_ID \
  --member=user:student-01-bae7fc399609@qwiklabs.net --role roles/source.writer
+
+(token login)
+firebase login --no-localhost
+
+firebase init
+
+firebase deploy
