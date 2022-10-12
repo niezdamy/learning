@@ -203,3 +203,28 @@ firebase login --no-localhost
 firebase init
 
 firebase deploy
+
+(install hugo)
+curl -L https://github.com/gohugoio/hugo/releases/download/v${_HUGO_VERSION}/hugo_${_HUGO_VERSION}_Linux-64bit.tar.gz | tar -xz -C /tmp
+
+(create and clone repository with gcloud)
+gcloud source repos create my_hugo_site
+gcloud source repos clone my_hugo_site
+
+(new site with hugo)
+/tmp/hugo new site my_hugo_site --force
+
+(clone template for hugo)
+git clone \
+ https://github.com/budparr/gohugo-theme-ananke.git \
+ themes/ananke
+echo 'theme = "ananke"' >> config.toml
+
+(firebase tools for bash)
+curl -sL https://firebase.tools | bash
+
+gcloud builds list
+
+gcloud builds log $(gcloud builds list --format='value(ID)' --filter=$(git rev-parse HEAD))
+
+gcloud builds log $(gcloud builds list --format='value(ID)' --filter=$(git rev-parse HEAD)) | grep "Hosting URL"

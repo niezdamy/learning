@@ -49,3 +49,6 @@ https://medium.com/@cfatechblog
 
 (How to evaluate cloud-native technology and build trust)
 https://www.virtuslab.com/blog/evaluate-cloud-tech/
+
+(Devops work)
+https://geek.justjoin.it/devops-w-teorii-i-w-praktyce-jak-wyglada-praca-devopsa-wywiad-z-pawlem-kantorem/?utm_source=Facebook&utm_medium=GEEK&utm_campaign=fp_Pazdziernik&fbclid=PAAaZV7Vb6NcUhxBRPcTBgKc9oyQ1KUnxLnxjsHIp9w8T8O5pi6CrS-GWNZuU_aem_AVvloYjvEmzQ3kmJrKy4FoZLq9MutcLMIBO3lZbpChnVuTNb76ZHLn_b35purOk-0lC3ZvBaqVJzwD0TEBfKc-KuJJMeTiOOn05Ku_KDCmI-GJVpZIQoS3o_hQ-CtlTAkcQ
