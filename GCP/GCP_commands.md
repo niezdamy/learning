@@ -228,3 +228,9 @@ gcloud builds list
 gcloud builds log $(gcloud builds list --format='value(ID)' --filter=$(git rev-parse HEAD))
 
 gcloud builds log $(gcloud builds list --format='value(ID)' --filter=$(git rev-parse HEAD)) | grep "Hosting URL"
+
+(tag & run cloud build)
+gcloud builds submit --tag gcr.io/$GOOGLE_CLOUD_PROJECT/rest-api:0.1
+
+(cloud run deploy)
+gcloud beta run deploy netflix-dataset-service --image gcr.io/$GOOGLE_CLOUD_PROJECT/rest-api:0.1 --allow-unauthenticated
