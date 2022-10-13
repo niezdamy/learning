@@ -234,3 +234,73 @@ gcloud builds submit --tag gcr.io/$GOOGLE_CLOUD_PROJECT/rest-api:0.1
 
 (cloud run deploy)
 gcloud beta run deploy netflix-dataset-service --image gcr.io/$GOOGLE_CLOUD_PROJECT/rest-api:0.1 --allow-unauthenticated
+
+### Perform Foundational Infrastructure Tasks in Google Cloud
+
+curl https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Ada_Lovelace_portrait.jpg/800px-Ada_Lovelace_portrait.jpg --output ada.jpg
+
+gsutil cp ada.jpg gs://YOUR-BUCKET-NAME
+
+gsutil ls -l gs://qwiklabs-gcp-00-6853b12cd2e7/ada.jpg
+
+gsutil acl ch -u AllUsers:R gs://qwiklabs-gcp-00-6853b12cd2e7/ada.jpg
+
+(apache and php servers)
+sudo apt-get update
+sudo apt-get install apache2 php7.0
+sudo service apache2 restart
+
+(install monitoring agent on vm-s)
+curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+sudo bash add-google-cloud-ops-agent-repo.sh --also-install
+sudo systemctl status google-cloud-ops-agent"\*"
+
+(Cloud function code)
+
+```
+/**
+* Background Cloud Function to be triggered by Pub/Sub.
+* This function is exported by index.js, and executed when
+* the trigger topic receives a message.
+*
+* @param {object} data The event payload.
+* @param {object} context The event metadata.
+*/
+exports.helloWorld = (data, context) => {
+const pubSubMessage = data;
+const name = pubSubMessage.data
+    ? Buffer.from(pubSubMessage.data, 'base64').toString() : "Hello World";
+console.log(`My Cloud Function: ${name}`);
+};
+```
+
+gsutil mb -p qwiklabs-gcp-01-8be41ff484a9 gs://qwiklabs-gcp-01-8be41ff484a9
+
+gcloud functions deploy helloWorld \
+ --stage-bucket qwiklabs-gcp-01-8be41ff484a9 \
+ --trigger-topic hello_world \
+ --runtime nodejs8
+
+(function status check)
+gcloud functions describe helloWorld
+
+DATA=$(printf 'Hello World!'|base64) && gcloud functions call helloWorld --data '{"data":"'$DATA'"}'
+
+(execution logs check)
+gcloud functions logs read helloWorld
+
+(create pubsub topic)
+gcloud pubsub topics create myTopic
+
+gcloud pubsub topics list
+
+(create pubsub subscription)
+gcloud pubsub subscriptions create --topic myTopic mySubscription
+
+gcloud pubsub topics publish myTopic --message "Hello"
+
+(pull by default get only one message, message will be displayed only once)
+gcloud pubsub subscriptions pull mySubscription --auto-ack
+
+(limit of displayed messages)
+gcloud pubsub subscriptions pull mySubscription --auto-ack --limit=3
