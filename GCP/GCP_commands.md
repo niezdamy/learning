@@ -304,3 +304,6 @@ gcloud pubsub subscriptions pull mySubscription --auto-ack
 
 (limit of displayed messages)
 gcloud pubsub subscriptions pull mySubscription --auto-ack --limit=3
+
+SERVICE_URL=https://netflix-dataset-service-611-4iagnqcipa-uc.a.run.app
+curl -X GET $SERVICE_URL
