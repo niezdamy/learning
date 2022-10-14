@@ -307,3 +307,196 @@ gcloud pubsub subscriptions pull mySubscription --auto-ack --limit=3
 
 SERVICE_URL=https://netflix-dataset-service-611-4iagnqcipa-uc.a.run.app
 curl -X GET $SERVICE_URL
+
+### Build a Website on Google Cloud
+
+(auth docker to registry)
+gcloud auth configure-docker us-central1-docker.pkg.dev
+
+(enable apis for cloud build, artifactory, cloud run)
+gcloud services enable artifactregistry.googleapis.com \
+ cloudbuild.googleapis.com \
+ run.googleapis.com
+
+(start build process)
+gcloud builds submit --tag us-central1-docker.pkg.dev/${GOOGLE_CLOUD_PROJECT}/monolith-demo/monolith:1.0.0
+
+(cloud run deployment)
+gcloud run deploy monolith --image us-central1-docker.pkg.dev/${GOOGLE_CLOUD_PROJECT}/monolith-demo/monolith:1.0.0 --region us-central1
+
+gcloud run services list
+(more detailed )
+gcloud beta run services list
+
+(concurency - FaaS - function as a service handle only one request at a time)
+gcloud run deploy monolith --image us-central1-docker.pkg.dev/${GOOGLE_CLOUD_PROJECT}/monolith-demo/monolith:1.0.0 --region us-central1 --concurrency 1
+
+(enable compute engine api)
+gcloud services enable compute.googleapis.com
+
+(devshell_project id = unique name)
+gsutil mb gs://fancy-store-$DEVSHELL_PROJECT_ID
+
+(nvm - node version manager, long term support )
+nvm install --lts
+
+(startup script provided by google)
+
+- Installs the Logging agent. The agent automatically collects logs from syslog.
+
+- Installs Node.js and Supervisor. Supervisor runs the app as a daemon.
+
+- Clones the app's source code from Cloud Storage Bucket and installs dependencies.
+
+- Configures Supervisor to run the app. Supervisor makes sure the app is restarted if it exits unexpectedly or is stopped by an admin or process. It also sends the app's stdout and stderr to syslog for the Logging agent to collect.
+
+```
+#!/bin/bash
+# Install logging monitor. The monitor will automatically pick up logs sent to
+# syslog.
+curl -s "https://storage.googleapis.com/signals-agents/logging/google-fluentd-install.sh" | bash
+service google-fluentd restart &
+# Install dependencies from apt
+apt-get update
+apt-get install -yq ca-certificates git build-essential supervisor psmisc
+# Install nodejs
+mkdir /opt/nodejs
+curl https://nodejs.org/dist/v16.14.0/node-v16.14.0-linux-x64.tar.gz | tar xvzf - -C /opt/nodejs --strip-components=1
+ln -s /opt/nodejs/bin/node /usr/bin/node
+ln -s /opt/nodejs/bin/npm /usr/bin/npm
+# Get the application source code from the Google Cloud Storage bucket.
+mkdir /fancy-store
+gsutil -m cp -r gs://fancy-store-[DEVSHELL_PROJECT_ID]/monolith-to-microservices/microservices/* /fancy-store/
+# Install app dependencies.
+cd /fancy-store/
+npm install
+# Create a nodeapp user. The application will run as this user.
+useradd -m -d /home/nodeapp nodeapp
+chown -R nodeapp:nodeapp /opt/app
+# Configure supervisor to run the node app.
+cat >/etc/supervisor/conf.d/node-app.conf << EOF
+[program:nodeapp]
+directory=/fancy-store
+command=npm start
+autostart=true
+autorestart=true
+user=nodeapp
+environment=HOME="/home/nodeapp",USER="nodeapp",NODE_ENV="production"
+stdout_logfile=syslog
+stderr_logfile=syslog
+EOF
+supervisorctl reread
+supervisorctl update
+```
+
+gcloud compute instances create frontend \
+ --machine-type=n1-standard-1 \
+ --tags=frontend \
+ --metadata=startup-script-url=https://storage.googleapis.com/fancy-store-$DEVSHELL_PROJECT_ID/startup-script.sh
+
+(frontend and backend rules on firewall)
+gcloud compute firewall-rules create fw-fe \
+ --allow tcp:8080 \
+ --target-tags=frontend
+
+gcloud compute firewall-rules create fw-be \
+ --allow tcp:8081-8082 \
+ --target-tags=backend
+
+watch -n 2 curl http://34.172.26.28:8080
+
+(instance-templates create and list )
+gcloud compute instance-templates create fancy-fe \
+ --source-instance=frontend
+
+gcloud compute instance-templates list
+
+(managed instance groups MIGs)
+gcloud compute instance-groups managed create fancy-fe-mig \
+ --base-instance-name fancy-fe \
+ --size 2 \
+ --template fancy-fe
+
+(health check create)
+
+gcloud compute firewall-rules create allow-health-check \
+ --allow tcp:8080-8081 \
+ --source-ranges 130.211.0.0/22,35.191.0.0/16 \
+ --network default
+
+gcloud compute instance-groups managed update fancy-fe-mig \
+ --health-check fancy-fe-hc \
+ --initial-delay 300
+
+(http load balancer health checks)
+gcloud compute http-health-checks create fancy-fe-frontend-hc \
+ --request-path / \
+ --port 8080
+
+(backend services that are the target for load balancing traffic)
+gcloud compute backend-services create fancy-fe-frontend \
+ --http-health-checks fancy-fe-frontend-hc \
+ --port-name frontend \
+ --global
+
+(add load balancer's backend services)
+gcloud compute backend-services add-backend fancy-fe-frontend \
+ --instance-group fancy-fe-mig \
+ --instance-group-zone us-central1-f \
+ --global
+
+(url map for backend redirection)
+gcloud compute url-maps create fancy-map \
+ --default-service fancy-fe-frontend
+
+(path matcher for url map)
+
+gcloud compute url-maps add-path-matcher fancy-map \
+ --default-service fancy-fe-frontend \
+ --path-matcher-name orders \
+ --path-rules "/api/orders=fancy-be-orders,/api/products=fancy-be-products"
+
+(proxy ties to url map)
+gcloud compute target-http-proxies create fancy-proxy \
+ --url-map fancy-map
+
+(global forwardin rule that ties a public IP address and port to the proxy)
+gcloud compute forwarding-rules create fancy-http-rule \
+ --global \
+ --target-http-proxy fancy-proxy \
+ --ports 80
+
+gcloud compute forwarding-rules list --global
+
+(force switch instsance with --max-unavailable parameter)
+gcloud compute instance-groups managed rolling-action replace fancy-fe-mig \
+ --max-unavailable 100%
+
+watch -n 2 gcloud compute instance-groups list-instances fancy-fe-mig
+
+(autoscaling policy)
+gcloud compute instance-groups managed set-autoscaling \
+ fancy-fe-mig \
+ --max-num-replicas 2 \
+ --target-load-balancing-utilization 0.60
+
+(cdn enable)
+gcloud compute backend-services update fancy-fe-frontend \
+ --enable-cdn --global
+
+gcloud compute instances set-machine-type frontend --machine-type custom-4-3840
+
+gcloud compute instances describe fancy-fe-0dmn | grep machineType
+
+watch -n 2 gcloud compute instance-groups list-instances fancy-fe-mig
+
+watch -n 2 gcloud compute backend-services get-health fancy-fe-frontend --global
+
+(break the instance)
+gcloud compute ssh fancy-fe-1228
+sudo supervisorctl stop nodeapp; sudo killall node
+exit
+
+(monitor repair operations)
+watch -n 2 gcloud compute operations list \
+--filter='operationType~compute.instances.repair.\*'
