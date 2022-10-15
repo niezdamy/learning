@@ -7,6 +7,8 @@ Google cloud skill bost challenge:
 - [x] Create and Manage Cloud Resources
 - [x] Serverless Firebase Development
 - [x] Perform Foundational Infrastructure Tasks in Google Cloud
+- [x] Build a Website on Google Cloud
+- [ ] Monitor and Log with Google Cloud Operations Suite (in progress)
 
 Interesting courses:
 Cloud Healthcare API

@@ -3,7 +3,7 @@
 #Setup
 gcloud auth list
 gcloud config set compute/zone us-east1-b
-gcloud config set compute/region us-east1
+gcloud config set compute/region us-central1
 
 gcloud compute project-info describe --project $(gcloud config get-value project) # detailed project info
 
@@ -500,3 +500,118 @@ exit
 (monitor repair operations)
 watch -n 2 gcloud compute operations list \
 --filter='operationType~compute.instances.repair.\*'
+
+### Kubernetes commands
+
+(k8s uses default compute/zone)
+gcloud config set compute/zone us-central1-f
+
+gcloud services enable container.googleapis.com
+
+(cluster with 3 nodes)
+gcloud container clusters create fancy-cluster --num-nodes 3
+
+gcloud compute instances list
+
+gcloud services enable cloudbuild.googleapis.com
+
+cd ~/monolith-to-microservices/monolith
+gcloud builds submit --tag gcr.io/${GOOGLE_CLOUD_PROJECT}/monolith:1.0.0 .
+
+(deployment should be stored in yaml)
+https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
+
+kubectl create deployment monolith --image=gcr.io/${GOOGLE_CLOUD_PROJECT}/monolith:1.0.0
+
+kubectl get all
+
+(debugging of kubernetes)
+kubectl describe pod monolith
+kubectl describe pod/monolith-7d8bc7bf68-2bxts
+kubectl describe deployment monolith
+kubectl describe deployment.apps/monolith
+
+# Show pods
+
+kubectl get pods
+
+# Show deployments
+
+kubectl get deployments
+
+# Show replica sets
+
+kubectl get rs
+#You can also combine them
+kubectl get pods,deployments
+
+(delete pod to check if replicaSet is creating new instance)
+kubectl delete pod/<POD_NAME>
+kubectl get all
+
+(create load balancer with external ip)
+kubectl expose deployment monolith --type=LoadBalancer --port 80 --target-port 8080
+
+(to check external ip)
+kubectl get service
+
+kubectl scale deployment monolith --replicas=3
+
+kubectl get all
+
+(deployment with zero downtime)
+kubectl set image deployment/monolith monolith=gcr.io/${GOOGLE_CLOUD_PROJECT}/monolith:2.0.0
+
+(clenaup)
+rm -rf monolith-to-microservices
+
+# Delete the container image for version 1.0.0 of the monolith
+
+gcloud container images delete gcr.io/${GOOGLE_CLOUD_PROJECT}/monolith:1.0.0 --quiet
+
+# Delete the container image for version 2.0.0 of the monolith
+
+gcloud container images delete gcr.io/${GOOGLE_CLOUD_PROJECT}/monolith:2.0.0 --quiet
+
+# The following command will take all source archives from all builds and delete them from cloud storage
+
+# Run this command to print all sources:
+
+# gcloud builds list | awk 'NR > 1 {print $4}'
+
+gcloud builds list | grep 'SOURCE' | cut -d ' ' -f2 | while read line; do gsutil rm $line; done
+
+kubectl delete service monolith
+kubectl delete deployment monolith
+
+### Migrating a Monolithic Website to Microservices on Google Kubernetes Engine
+
+gcloud container clusters create fancy-cluster --num-nodes 3 --machine-type=e2-standard-4
+
+(migrate products from monolith to microservice)
+
+1. Create docker container
+   cd ~/monolith-to-microservices/microservices/src/products
+   gcloud builds submit --tag gcr.io/${GOOGLE_CLOUD_PROJECT}/products:1.0.0 .
+
+2. Deploy container to gke
+   kubectl create deployment products --image=gcr.io/${GOOGLE_CLOUD_PROJECT}/products:1.0.0
+
+3. Expose the GKE Container
+   kubectl expose deployment products --type=LoadBalancer --port 80 --target-port 8082
+
+4. Check ip:
+   kubectl get service products
+
+orders: 34.148.30.10
+product: 34.73.97.38
+
+5. Change envs and rebuild frontend config files
+   npm run build:monolith
+
+6. Create docker container with cloud build
+   cd ~/monolith-to-microservices/monolith
+   gcloud builds submit --tag gcr.io/${GOOGLE_CLOUD_PROJECT}/monolith:3.0.0 .
+
+7. Deploy container to GKE
+   kubectl set image deployment/monolith monolith=gcr.io/${GOOGLE_CLOUD_PROJECT}/monolith:3.0.0

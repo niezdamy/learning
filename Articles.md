@@ -55,3 +55,12 @@ https://geek.justjoin.it/devops-w-teorii-i-w-praktyce-jak-wyglada-praca-devopsa-
 
 (Documentation article)
 https://documentation.divio.com
+
+(Kubernetes deployments )
+https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
+
+(Kubecon)
+https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/
+
+(Kubectl cheat sheet)
+https://kubernetes.io/docs/reference/kubectl/cheatsheet/
