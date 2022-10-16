@@ -11,6 +11,7 @@ Google cloud skill bost challenge:
 - [x] Predict Soccer Match Outcomes with BigQuery ML
 
 - [ ] Monitor and Log with Google Cloud Operations Suite (in progress)
+- [ ] Automating Infrastructure on Google Cloud with Terraform
 
 Interesting courses:
 
