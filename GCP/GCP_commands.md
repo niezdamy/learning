@@ -615,3 +615,888 @@ product: 34.73.97.38
 
 7. Deploy container to GKE
    kubectl set image deployment/monolith monolith=gcr.io/${GOOGLE_CLOUD_PROJECT}/monolith:3.0.0
+
+### Serverless Cloud Run Development
+
+#### PDF Convert solution
+
+![PDF_diagram](/GCP/diagrams/pdf_diagram.png)
+
+sample code
+
+```
+git clone https://github.com/rosera/pet-theory.git
+cd pet-theory/lab03
+```
+
+package.json add script
+
+```
+    "start": "node index.js",
+```
+
+instal aditional dependencies
+
+```
+npm install express
+npm install body-parser
+npm install child_process
+npm install @google-cloud/storage
+```
+
+cloud build
+
+```
+gcloud builds submit \
+  --tag gcr.io/$GOOGLE_CLOUD_PROJECT/pdf-converter
+```
+
+cloud run instance create
+
+```
+gcloud run deploy pdf-converter \
+  --image gcr.io/$GOOGLE_CLOUD_PROJECT/pdf-converter \
+  --platform managed \
+  --region us-east1 \
+  --no-allow-unauthenticated \
+  --max-instances=1
+```
+
+service url as local variable
+
+```
+SERVICE_URL=$(gcloud beta run services describe pdf-converter --platform managed --region us-east1 --format="value(status.url)")
+echo $SERVICE_URL
+```
+
+!!! request with auth token
+
+```
+curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token)" $SERVICE_URL
+```
+
+create buckets
+
+```
+gsutil mb gs://$GOOGLE_CLOUD_PROJECT-upload
+gsutil mb gs://$GOOGLE_CLOUD_PROJECT-processed
+
+```
+
+create pub/sub service
+
+```
+gsutil notification create -t new-doc -f json -e OBJECT_FINALIZE gs://$GOOGLE_CLOUD_PROJECT-upload
+```
+
+create invoker service account
+
+```
+gcloud iam service-accounts create pubsub-cloud-run-invoker --display-name "PubSub Cloud Run Invoker"
+```
+
+```add permissions to service account
+gcloud beta run services add-iam-policy-binding pdf-converter --member=serviceAccount:pubsub-cloud-run-invoker@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com --role=roles/run.invoker --platform managed --region us-east1
+```
+
+get project number
+
+```
+gcloud projects list
+```
+
+set local var
+
+```
+PROJECT_NUMBER=29539156516
+```
+
+enable your project to create Cloud Pub/Sub authentication tokens:
+
+```
+gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT --member=serviceAccount:service-$PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com --role=roles/iam.serviceAccountTokenCreator
+```
+
+Create Pub/Sub subscription
+
+```
+gcloud beta pubsub subscriptions create pdf-conv-sub --topic new-doc --push-endpoint=$SERVICE_URL --push-auth-service-account=pubsub-cloud-run-invoker@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com
+```
+
+Test files in upload bucket
+
+```
+gsutil -m cp gs://spls/gsp644/* gs://$GOOGLE_CLOUD_PROJECT-upload
+```
+
+Cleanup bucket
+
+```gsutil -m rm gs://$GOOGLE_CLOUD_PROJECT-upload/*
+
+```
+
+pdf convert
+
+```
+const {promisify} = require('util');
+const exec        = promisify(require('child_process').exec);
+const cmd = 'libreoffice --headless --convert-to pdf --outdir ' +
+            `/tmp "/tmp/${fileName}"`;
+const { stdout, stderr } = await exec(cmd);
+if (stderr) {
+  throw stderr;
+}
+```
+
+install libre office in dockerfile
+
+```
+FROM node:12
+RUN apt-get update -y \
+    && apt-get install -y libreoffice \
+    && apt-get clean
+WORKDIR /usr/src/app
+COPY package.json package*.json ./
+RUN npm install --only=production
+COPY . .
+CMD [ "npm", "start" ]
+```
+
+whole index.js
+
+```(javascript)
+const {promisify} = require('util');
+const {Storage}   = require('@google-cloud/storage');
+const exec        = promisify(require('child_process').exec);
+const storage     = new Storage();
+const express     = require('express');
+const bodyParser  = require('body-parser');
+const app         = express();
+app.use(bodyParser.json());
+const port = process.env.PORT || 8080;
+app.listen(port, () => {
+  console.log('Listening on port', port);
+});
+app.post('/', async (req, res) => {
+  try {
+    const file = decodeBase64Json(req.body.message.data);
+    await downloadFile(file.bucket, file.name);
+    const pdfFileName = await convertFile(file.name);
+    await uploadFile(process.env.PDF_BUCKET, pdfFileName);
+    await deleteFile(file.bucket, file.name);
+  }
+  catch (ex) {
+    console.log(`Error: ${ex}`);
+  }
+  res.set('Content-Type', 'text/plain');
+  res.send('\n\nOK\n\n');
+})
+function decodeBase64Json(data) {
+  return JSON.parse(Buffer.from(data, 'base64').toString());
+}
+async function downloadFile(bucketName, fileName) {
+  const options = {destination: `/tmp/${fileName}`};
+  await storage.bucket(bucketName).file(fileName).download(options);
+}
+async function convertFile(fileName) {
+  const cmd = 'libreoffice --headless --convert-to pdf --outdir /tmp ' +
+              `"/tmp/${fileName}"`;
+  console.log(cmd);
+  const { stdout, stderr } = await exec(cmd);
+  if (stderr) {
+    throw stderr;
+  }
+  console.log(stdout);
+  pdfFileName = fileName.replace(/\.\w+$/, '.pdf');
+  return pdfFileName;
+}
+async function deleteFile(bucketName, fileName) {
+  await storage.bucket(bucketName).file(fileName).delete();
+}
+async function uploadFile(bucketName, fileName) {
+  await storage.bucket(bucketName).upload(`/tmp/${fileName}`);
+}
+```
+
+cloud run instance with env-vars
+
+```
+gcloud run deploy pdf-converter \
+  --image gcr.io/$GOOGLE_CLOUD_PROJECT/pdf-converter \
+  --platform managed \
+  --region us-east1 \
+  --memory=2Gi \
+  --no-allow-unauthenticated \
+  --max-instances=1 \
+  --set-env-vars PDF_BUCKET=$GOOGLE_CLOUD_PROJECT-processed
+```
+
+#### Asynchronous System with Cloud RUn
+
+Enable cloudrun api
+
+```
+gcloud services enable run.googleapis.com
+```
+
+Create pubsub
+
+```
+
+gcloud pubsub topics create new-lab-report
+
+```
+
+lab 05
+
+```
+
+git clone https://github.com/rosera/pet-theory.git
+cd pet-theory/lab05/lab-service
+npm install express
+npm install body-parser
+npm install @google-cloud/pubsub
+
+```
+
+index.js
+
+```(javascript)
+const {PubSub} = require('@google-cloud/pubsub');
+const pubsub = new PubSub();
+const express = require('express');
+const app = express();
+const bodyParser = require('body-parser');
+app.use(bodyParser.json());
+const port = process.env.PORT || 8080;
+app.listen(port, () => {
+  console.log('Listening on port', port);
+});
+app.post('/', async (req, res) => {
+  try {
+    const labReport = req.body;
+    await publishPubSubMessage(labReport);
+    res.status(204).send();
+  }
+  catch (ex) {
+    console.log(ex);
+    res.status(500).send(ex);
+  }
+})
+async function publishPubSubMessage(labReport) {
+  const buffer = Buffer.from(JSON.stringify(labReport));
+  await pubsub.topic('new-lab-report').publish(buffer);
+}
+```
+
+dockerfile
+
+```
+FROM node:10
+WORKDIR /usr/src/app
+COPY package.json package*.json ./
+RUN npm install --only=production
+COPY . .
+CMD [ "npm", "start" ]
+```
+
+deploy the lab-report-service
+
+create deploy.sh
+
+```
+gcloud builds submit \
+  --tag gcr.io/$GOOGLE_CLOUD_PROJECT/lab-report-service
+gcloud run deploy lab-report-service \
+  --image gcr.io/$GOOGLE_CLOUD_PROJECT/lab-report-service \
+  --platform managed \
+  --region us-east1 \
+  --allow-unauthenticated \
+  --max-instances=1
+```
+
+make file executable
+
+```
+chmod u+x deploy.sh
+./deploy.sh
+```
+
+Lab Report Service as local var
+
+```
+export LAB_REPORT_SERVICE_URL=$(gcloud run services describe lab-report-service --platform managed --region us-east1 --format="value(status.address.url)")
+```
+
+post-reports.sh
+
+```
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d "{\"id\": 12}" \
+  $LAB_REPORT_SERVICE_URL &
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d "{\"id\": 34}" \
+  $LAB_REPORT_SERVICE_URL &
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d "{\"id\": 56}" \
+  $LAB_REPORT_SERVICE_URL &
+```
+
+chmod u+x post-reports.sh
+
+#### email service
+
+```
+cd ~/pet-theory/lab05/email-service
+```
+
+index.js (pubsub handle)
+
+```
+const express = require('express');
+const app = express();
+const bodyParser = require('body-parser');
+app.use(bodyParser.json());
+const port = process.env.PORT || 8080;
+app.listen(port, () => {
+  console.log('Listening on port', port);
+});
+app.post('/', async (req, res) => {
+  const labReport = decodeBase64Json(req.body.message.data);
+  try {
+    console.log(`Email Service: Report ${labReport.id} trying...`);
+    sendEmail();
+    console.log(`Email Service: Report ${labReport.id} success :-)`);
+    res.status(204).send();
+  }
+  catch (ex) {
+    console.log(`Email Service: Report ${labReport.id} failure: ${ex}`);
+    res.status(500).send();
+  }
+})
+function decodeBase64Json(data) {
+  return JSON.parse(Buffer.from(data, 'base64').toString());
+}
+function sendEmail() {
+  console.log('Sending email');
+}
+```
+
+#### Configure Pub/Sub to trigger the Email Service
+
+create service account
+
+```
+gcloud iam service-accounts create pubsub-cloud-run-invoker --display-name "PubSub Cloud Run Invoker"
+```
+
+Give the new service account permission to invoke the Email Service:
+
+````
+gcloud run services add-iam-policy-binding email-service --member=serviceAccount:pubsub-cloud-run-invoker@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com --role=roles/run.invoker --region us-east1 --platform managed```
+````
+
+Project number as variable
+
+```
+PROJECT_NUMBER=$(gcloud projects list --filter="qwiklabs-gcp" --format='value(PROJECT_NUMBER)')
+```
+
+Pub sub authentication tokens create
+
+```
+gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT --member=serviceAccount:service-$PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com --role=roles/iam.serviceAccountTokenCreator
+```
+
+email service url in env
+
+```
+EMAIL_SERVICE_URL=$(gcloud run services describe email-service --platform managed --region us-east1 --format="value(status.address.url)")
+```
+
+pub sub subscription on email service
+
+```
+gcloud pubsub subscriptions create email-service-sub --topic new-lab-report --push-endpoint=$EMAIL_SERVICE_URL --push-auth-service-account=pubsub-cloud-run-invoker@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com
+```
+
+#### sms service
+
+```
+cd ~/pet-theory/lab05/sms-service
+```
+
+index.html with sms
+
+```
+const express = require('express');
+const app = express();
+const bodyParser = require('body-parser');
+app.use(bodyParser.json());
+const port = process.env.PORT || 8080;
+app.listen(port, () => {
+  console.log('Listening on port', port);
+});
+app.post('/', async (req, res) => {
+  const labReport = decodeBase64Json(req.body.message.data);
+  try {
+    console.log(`SMS Service: Report ${labReport.id} trying...`);
+    sendSms();
+    console.log(`SMS Service: Report ${labReport.id} success :-)`);
+    res.status(204).send();
+  }
+  catch (ex) {
+    console.log(`SMS Service: Report ${labReport.id} failure: ${ex}`);
+    res.status(500).send();
+  }
+})
+function decodeBase64Json(data) {
+  return JSON.parse(Buffer.from(data, 'base64').toString());
+}
+function sendSms() {
+  console.log('Sending SMS');
+}
+```
+
+deploy.sh
+
+```
+gcloud builds submit \
+  --tag gcr.io/$GOOGLE_CLOUD_PROJECT/sms-service
+gcloud run deploy sms-service \
+  --image gcr.io/$GOOGLE_CLOUD_PROJECT/sms-service \
+  --platform managed \
+  --region us-east1 \
+  --no-allow-unauthenticated \
+  --max-instances=1
+```
+
+#### Configure Cloud Pub/Sub to trigger the SMS Service
+
+Set the permissions to allow Pub/Sub to trigger the SMS Service:
+
+```
+gcloud run services add-iam-policy-binding sms-service --member=serviceAccount:pubsub-cloud-run-invoker@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com --role=roles/run.invoker --region us-east1 --platform managed
+```
+
+The first step is to put the URL address of the SMS Service in an environment variable:
+
+```
+SMS_SERVICE_URL=$(gcloud run services describe sms-service --platform managed --region us-east1 --format="value(status.address.url)")
+```
+
+create the Pub/Sub subscription:
+
+```
+gcloud pubsub subscriptions create sms-service-sub --topic new-lab-report --push-endpoint=$SMS_SERVICE_URL --push-auth-service-account=pubsub-cloud-run-invoker@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com
+```
+
+### Developing a REST API with Go and Cloud Run
+
+```
+gcloud config set project $(gcloud projects list --format='value(PROJECT_ID)' --filter='qwiklabs-gcp')
+```
+
+```
+git clone https://github.com/rosera/pet-theory.git && cd pet-theory/lab08
+```
+
+main.go
+
+```
+package main
+import (
+  "fmt"
+  "log"
+  "net/http"
+  "os"
+)
+func main() {
+  port := os.Getenv("PORT")
+  if port == "" {
+      port = "8080"
+  }
+  http.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
+      fmt.Fprintf(w, "{status: 'running'}")
+  })
+  log.Println("Pets REST API listening on port", port)
+  if err := http.ListenAndServe(":"+port, nil); err != nil {
+      log.Fatalf("Error launching Pets REST API server: %v", err)
+  }
+}
+```
+
+Dockerfile
+
+```
+FROM gcr.io/distroless/base-debian10
+WORKDIR /usr/src/app
+COPY server .
+CMD [ "/usr/src/app/server" ]
+```
+
+build go app
+
+```
+go build -o server
+```
+
+Cloud Build
+
+```
+gcloud builds submit \
+  --tag gcr.io/$GOOGLE_CLOUD_PROJECT/rest-api:0.1
+```
+
+deploy rest-api
+
+```
+gcloud run deploy rest-api \
+  --image gcr.io/$GOOGLE_CLOUD_PROJECT/rest-api:0.1 \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --max-instances=2
+```
+
+Test data import
+
+```
+gsutil cp -r gs://spls/gsp645/2019-10-06T20:10:37_43617 gs://$GOOGLE_CLOUD_PROJECT-customer
+
+gcloud beta firestore import gs://$GOOGLE_CLOUD_PROJECT-customer/2019-10-06T20:10:37_43617/
+```
+
+main.go file
+
+```
+package main
+
+import (
+	"cloud.google.com/go/firestore"
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
+	"google.golang.org/api/iterator"
+	"log"
+	"net/http"
+	"os"
+)
+
+var client *firestore.Client
+
+func main() {
+	var err error
+	ctx := context.Background()
+	client, err = firestore.NewClient(ctx, "qwiklabs-gcp-04-ceeccfc6813f")
+	if err != nil {
+		log.Fatalf("Error initializing Cloud Firestore client: %v", err)
+	}
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	r := mux.NewRouter()
+	r.HandleFunc("/v1/", rootHandler)
+	r.HandleFunc("/v1/customer/{id}", customerHandler)
+	log.Println("Pets REST API listening on port", port)
+	cors := handlers.CORS(
+		handlers.AllowedHeaders([]string{"X-Requested-With", "Authorization", "Origin"}),
+		handlers.AllowedOrigins([]string{"https://storage.googleapis.com"}),
+		handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "OPTIONS", "PATCH", "CONNECT"}),
+	)
+	if err := http.ListenAndServe(":"+port, cors(r)); err != nil {
+		log.Fatalf("Error launching Pets REST API server: %v", err)
+	}
+}
+
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "{status: 'running'}")
+}
+func customerHandler(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	ctx := context.Background()
+	customer, err := getCustomer(ctx, id)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, `{"status": "fail", "data": '%s'}`, err)
+		return
+	}
+	if customer == nil {
+		w.WriteHeader(http.StatusNotFound)
+		msg := fmt.Sprintf("`Customer \"%s\" not found`", id)
+		fmt.Fprintf(w, fmt.Sprintf(`{"status": "fail", "data": {"title": %s}}`, msg))
+		return
+	}
+	amount, err := getAmounts(ctx, customer)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, `{"status": "fail", "data": "Unable to fetch amounts: %s"}`, err)
+		return
+	}
+	data, err := json.Marshal(amount)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, `{"status": "fail", "data": "Unable to fetch amounts: %s"}`, err)
+		return
+	}
+	fmt.Fprintf(w, fmt.Sprintf(`{"status": "success", "data": %s}`, data))
+}
+
+type Customer struct {
+	Email string `firestore:"email"`
+	ID    string `firestore:"id"`
+	Name  string `firestore:"name"`
+	Phone string `firestore:"phone"`
+}
+
+func getCustomer(ctx context.Context, id string) (*Customer, error) {
+	query := client.Collection("customers").Where("id", "==", id)
+	iter := query.Documents(ctx)
+	var c Customer
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		err = doc.DataTo(&c)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &c, nil
+}
+func getAmounts(ctx context.Context, c *Customer) (map[string]int64, error) {
+	if c == nil {
+		return map[string]int64{}, fmt.Errorf("Customer should be non-nil: %v", c)
+	}
+	result := map[string]int64{
+		"proposed": 0,
+		"approved": 0,
+		"rejected": 0,
+	}
+	query := client.Collection(fmt.Sprintf("customers/%s/treatments", c.Email))
+	if query == nil {
+		return map[string]int64{}, fmt.Errorf("Query is nil: %v", c)
+	}
+	iter := query.Documents(ctx)
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		treatment := doc.Data()
+		result[treatment["status"].(string)] += treatment["cost"].(int64)
+	}
+	return result, nil
+}
+```
+
+#### Creating PDFs with Go and Cloud Run
+
+activate lab account
+
+```
+gcloud auth list --filter=status:ACTIVE --format="value(account)"
+```
+
+Clone git
+
+```
+git clone https://github.com/Deleplace/pet-theory.git
+cd pet-theory/lab03
+```
+
+Server.go - invoice microservice
+
+```
+package main
+import (
+      "fmt"
+      "io/ioutil"
+      "log"
+      "net/http"
+      "os"
+      "os/exec"
+      "regexp"
+      "strings"
+)
+func main() {
+      http.HandleFunc("/", process)
+      port := os.Getenv("PORT")
+      if port == "" {
+              port = "8080"
+              log.Printf("Defaulting to port %s", port)
+      }
+      log.Printf("Listening on port %s", port)
+      err := http.ListenAndServe(fmt.Sprintf(":%s", port), nil)
+      log.Fatal(err)
+}
+func process(w http.ResponseWriter, r *http.Request) {
+      log.Println("Serving request")
+      if r.Method == "GET" {
+              fmt.Fprintln(w, "Ready to process POST requests from Cloud Storage trigger")
+              return
+      }
+      //
+      // Read request body containing Cloud Storage object metadata
+      //
+      gcsInputFile, err1 := readBody(r)
+      if err1 != nil {
+              log.Printf("Error reading POST data: %v", err1)
+              w.WriteHeader(http.StatusBadRequest)
+              fmt.Fprintf(w, "Problem with POST data: %v \n", err1)
+              return
+      }
+      //
+      // Working directory (concurrency-safe)
+      //
+      localDir, errDir := ioutil.TempDir("", "")
+      if errDir != nil {
+              log.Printf("Error creating local temp dir: %v", errDir)
+              w.WriteHeader(http.StatusInternalServerError)
+              fmt.Fprintf(w, "Could not create a temp directory on server. \n")
+              return
+      }
+      defer os.RemoveAll(localDir)
+      //
+      // Download input file from Cloud Storage
+      //
+      localInputFile, err2 := download(gcsInputFile, localDir)
+      if err2 != nil {
+              log.Printf("Error downloading Cloud Storage file [%s] from bucket [%s]: %v",
+gcsInputFile.Name, gcsInputFile.Bucket, err2)
+              w.WriteHeader(http.StatusInternalServerError)
+              fmt.Fprintf(w, "Error downloading Cloud Storage file [%s] from bucket [%s]",
+gcsInputFile.Name, gcsInputFile.Bucket)
+              return
+      }
+      //
+      // Use LibreOffice to convert local input file to local PDF file.
+      //
+      localPDFFilePath, err3 := convertToPDF(localInputFile.Name(), localDir)
+      if err3 != nil {
+              log.Printf("Error converting to PDF: %v", err3)
+              w.WriteHeader(http.StatusInternalServerError)
+              fmt.Fprintf(w, "Error converting to PDF.")
+              return
+      }
+      //
+      // Upload the freshly generated PDF to Cloud Storage
+      //
+      targetBucket := os.Getenv("PDF_BUCKET")
+      err4 := upload(localPDFFilePath, targetBucket)
+      if err4 != nil {
+              log.Printf("Error uploading PDF file to bucket [%s]: %v", targetBucket, err4)
+              w.WriteHeader(http.StatusInternalServerError)
+              fmt.Fprintf(w, "Error downloading Cloud Storage file [%s] from bucket [%s]",
+gcsInputFile.Name, gcsInputFile.Bucket)
+              return
+      }
+      //
+      // Delete the original input file from Cloud Storage.
+      //
+      err5 := deleteGCSFile(gcsInputFile.Bucket, gcsInputFile.Name)
+      if err5 != nil {
+              log.Printf("Error deleting file [%s] from bucket [%s]: %v", gcsInputFile.Name,
+gcsInputFile.Bucket, err5)
+         // This is not a blocking error.
+         // The PDF was successfully generated and uploaded.
+      }
+      log.Println("Successfully produced PDF")
+      fmt.Fprintln(w, "Successfully produced PDF")
+}
+func convertToPDF(localFilePath string, localDir string) (resultFilePath string, err error) {
+      log.Printf("Converting [%s] to PDF", localFilePath)
+      cmd := exec.Command("libreoffice", "--headless", "--convert-to", "pdf",
+              "--outdir", localDir,
+              localFilePath)
+      cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+      log.Println(cmd)
+      err = cmd.Run()
+      if err != nil {
+              return "", err
+      }
+      pdfFilePath := regexp.MustCompile(`\.\w+$`).ReplaceAllString(localFilePath, ".pdf")
+      if !strings.HasSuffix(pdfFilePath, ".pdf") {
+              pdfFilePath += ".pdf"
+      }
+      log.Printf("Converted %s to %s", localFilePath, pdfFilePath)
+      return pdfFilePath, nil
+}
+```
+
+Dockerfile
+
+```
+FROM debian:buster
+RUN apt-get update -y \
+  && apt-get install -y libreoffice \
+  && apt-get clean
+WORKDIR /usr/src/app
+COPY server .
+CMD [ "./server" ]
+```
+
+Build image
+
+```
+gcloud builds submit \
+  --tag gcr.io/$GOOGLE_CLOUD_PROJECT/pdf-converter
+```
+
+Cloud run with 2GB of RAM
+
+```
+gcloud run deploy pdf-converter \
+  --image gcr.io/$GOOGLE_CLOUD_PROJECT/pdf-converter \
+  --platform managed \
+  --region us-east1 \
+  --memory=2Gi \
+  --no-allow-unauthenticated \
+  --set-env-vars PDF_BUCKET=$GOOGLE_CLOUD_PROJECT-processed \
+  --max-instances=3
+```
+
+pub sub with service account
+
+```
+gsutil notification create -t new-doc -f json -e OBJECT_FINALIZE gs://$GOOGLE_CLOUD_PROJECT-upload
+
+gcloud iam service-accounts create pubsub-cloud-run-invoker --display-name "PubSub Cloud Run Invoker"
+
+gcloud run services add-iam-policy-binding pdf-converter \
+  --member=serviceAccount:pubsub-cloud-run-invoker@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com \
+  --role=roles/run.invoker \
+  --region us-east1 \
+  --platform managed
+
+PROJECT_NUMBER=$(gcloud projects list \
+ --format="value(PROJECT_NUMBER)" \
+ --filter="$GOOGLE_CLOUD_PROJECT")
+
+ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
+  --member=serviceAccount:service-$PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com \
+  --role=roles/iam.serviceAccountTokenCreator
+
+```
+
+pubsub subscription created
+
+```
+gcloud pubsub subscriptions create pdf-conv-sub \
+  --topic new-doc \
+  --push-endpoint=$SERVICE_URL \
+  --push-auth-service-account=pubsub-cloud-run-invoker@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com
+```
