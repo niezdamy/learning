@@ -10,7 +10,7 @@ Google cloud skill bost challenge:
 - [x] Build a Website on Google Cloud
 - [x] Predict Soccer Match Outcomes with BigQuery ML
 - [x] Automating Infrastructure on Google Cloud with Terraform
-- [ ] Implement DevOps in Google Cloud
+- [x] Implement DevOps in Google Cloud
 
 - [ ] Monitor and Log with Google Cloud Operations Suite (in progress)
 

@@ -170,3 +170,120 @@ spec:
             initialDelaySeconds: 5
             timeoutSeconds: 1
 ```
+
+SRE Lab
+
+```
+git clone --depth 1 --branch cloudskillsboost_asm https://github.com/GoogleCloudPlatform/cloud-ops-sandbox.git
+cd cloud-ops-sandbox/sre-recipes
+```
+
+Connect to cluster with steps:
+
+1. Navigate to Navigation Menu > Kubernetes Engine > Clusters. Select the three dots to the right of the cloud-ops-sandbox cluster and select the option to Connect.
+
+2. On the Connect to the cluster modal dialog, click the RUN IN CLOUD SHELL button. Press Enter to run the command once populated in Cloud Shell
+
+3. Restore sre-recipe:
+
+```
+./sandboxctl sre-recipes restore "recipe3"
+```
+
+Create logs metrics (type counter, Error_Rate_SLI)
+
+```
+resource.labels.cluster_name="cloud-ops-sandbox" AND resource.labels.namespace_name="default" AND resource.type="k8s_container" AND labels.k8s-pod/app="recommendationservice" AND severity>=ERROR
+```
+
+Request based SLI on
+Define SLI details, the Performance Metric must be set to the following value:
+
+```
+custom.googleapis.com/opencensus/grpc.io/client/roundtrip_latency
+```
+
+Create SLO in
+Navigation menu > Monitoring > Services.
+
+### Jenkins in kubernetes
+
+![Diagram jenkins](/GCP/k8s_jenkins_diagram.png)
+
+https://cloud.google.com/architecture/jenkins-on-kubernetes-engine
+
+gcloud config set compute/zone us-central1-b
+
+(Jenkins source code)
+gsutil cp gs://spls/gsp051/continuous-deployment-on-kubernetes.zip .
+unzip continuous-deployment-on-kubernetes.zip
+cd continuous-deployment-on-kubernetes
+
+(provision k8s cluster)
+gcloud container clusters create jenkins-cd \
+--num-nodes 2 \
+--machine-type n1-standard-2 \
+--scopes "https://www.googleapis.com/auth/source.read_write,cloud-platform"
+
+gcloud container clusters list
+
+(get credential for cluster)
+gcloud container clusters get-credentials jenkins-cd
+kubectl cluster-info
+
+(setup helm)
+helm repo add jenkins https://charts.jenkins.io
+helm repo update
+
+(install jenkins)
+helm install cd jenkins/jenkins -f jenkins/values.yaml --wait
+
+(Configure the Jenkins service account to be able to deploy to the cluster)
+kubectl create clusterrolebinding jenkins-deploy --clusterrole=cluster-admin --serviceaccount=default:cd-jenkins
+
+(configure port forwarding to the jenkins ui)
+export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/component=jenkins-master" -l "app.kubernetes.io/instance=cd" -o jsonpath="{.items[0].metadata.name}")
+kubectl port-forward $POD_NAME 8080:8080 >> /dev/null &
+
+(check services)
+kubectl get svc
+
+(connect to jenkins)
+printf $(kubectl get secret cd-jenkins -o jsonpath="{.data.jenkins-admin-password}" | base64 --decode);echo
+
+### Deploying the Application
+
+cd sample-app
+
+(create namespace production)
+kubectl create ns production
+
+kubectl apply -f k8s/production -n production
+
+kubectl apply -f k8s/canary -n production
+
+kubectl apply -f k8s/services -n production
+
+(Scale up production frontends)
+kubectl scale deployment gceme-frontend-production -n production --replicas 4
+
+(display frontend pods)
+kubectl get pods -n production -l app=gceme -l role=frontend
+
+(retrieve the external ip)
+kubectl get service gceme-frontend -n production
+
+(store load balncer ip as environment variable)
+export FRONTEND_SERVICE_IP=$(kubectl get -o jsonpath="{.status.loadBalancer.ingress[0].ip}" --namespace=production services gceme-frontend)
+
+(create jenkins pipeline)
+gcloud source repos create default
+git init
+git config credential.helper gcloud.sh
+
+kubectl proxy &
+
+https://source.cloud.google.com/qwiklabs-gcp-00-9ae61481c1c0/sample-app/
+
+jenkins admin password:
+iOjP8L779rCogk8i8a7jg0
