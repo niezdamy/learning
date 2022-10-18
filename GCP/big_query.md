@@ -501,3 +501,143 @@ FROM
 ORDER BY
   predictedgoalProb
 ```
+
+Big Query CLI
+
+examine schema
+
+```
+bq show bigquery-public-data:samples.shakespeare
+```
+
+bq help
+
+```
+bq help query
+```
+
+--use_legacy_sql=false makes standard SQL the default query syntax.
+
+```
+bq query --use_legacy_sql=false \
+'SELECT
+   word,
+   SUM(word_count) AS count
+ FROM
+   `bigquery-public-data`.samples.shakespeare
+ WHERE
+   word LIKE "%raisin%"
+ GROUP BY
+   word'
+```
+
+```
+bq query --use_legacy_sql=false \
+'SELECT
+   word
+ FROM
+   `bigquery-public-data`.samples.shakespeare
+ WHERE
+   word = "huzzah"'
+```
+
+list any existing datasets in your project:
+
+```
+bq ls
+bq ls bigquery-public-data:
+```
+
+Use the bq mk command to create a new dataset named babynames
+
+```
+bq mk babynames
+```
+
+Load sample data to babynames
+
+```
+curl -LO http://www.ssa.gov/OACT/babynames/names.zip
+unzip names.zip
+bq load babynames.names2010 yob2010.txt name:string,gender:string,count:integer
+```
+
+```
+bq show babynames.names2010
+```
+
+show most popular names
+
+```
+bq query "SELECT name,count FROM babynames.names2010 WHERE gender = 'F' ORDER BY count DESC LIMIT 5"
+```
+
+```
+bq query "SELECT name,count FROM babynames.names2010 WHERE gender = 'M' ORDER BY count ASC LIMIT 5"
+```
+
+```
+bq rm -r babynames
+
+```
+
+Standard sql queries in bq
+
+```
+#standardSQL
+SELECT
+COUNT(DISTINCT fullVisitorId) AS unique_visitors,
+channelGrouping
+FROM `data-to-insights.ecommerce.all_sessions`
+GROUP BY channelGrouping
+ORDER BY channelGrouping DESC;
+
+```
+
+refine the query to no longer double-count product views for visitors who have viewed a product many times. Each distinct product view should only count once per visitor:
+
+```
+WITH unique_product_views_by_person AS (
+-- find each unique product viewed by each visitor
+SELECT
+ fullVisitorId,
+ (v2ProductName) AS ProductName
+FROM `data-to-insights.ecommerce.all_sessions`
+WHERE type = 'PAGE'
+GROUP BY fullVisitorId, v2ProductName )
+-- aggregate the top viewed products and sort them
+SELECT
+  COUNT(*) AS unique_view_count,
+  ProductName
+FROM unique_product_views_by_person
+GROUP BY ProductName
+ORDER BY unique_view_count DESC
+LIMIT 5
+```
+
+```
+#standardSQL
+SELECT
+  COUNT(*) AS product_views,
+  COUNT(productQuantity) AS orders,
+  SUM(productQuantity) AS quantity_product_ordered,
+  SUM(productQuantity) / COUNT(productQuantity) AS avg_per_order,
+  (v2ProductName) AS ProductName
+FROM `data-to-insights.ecommerce.all_sessions`
+WHERE type = 'PAGE'
+GROUP BY v2ProductName
+ORDER BY product_views DESC
+LIMIT 5;
+```
+
+```
+#standardSQL
+SELECT
+geoNetwork_city,
+SUM(totals_transactions) AS totals_transactions,
+COUNT( DISTINCT fullVisitorId) AS distinct_visitors
+FROM
+`data-to-insights.ecommerce.rev_transactions`
+GROUP BY geoNetwork_city
+ORDER BY distinct_visitors DESC
+```
