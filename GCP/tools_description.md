@@ -1,0 +1,3 @@
+- backstage.io -> agregate source of truth about app - created by Spotify https://github.com/backstage/backstage
+- loki -> logs aggregation https://github.com/grafana/loki
+- wazuh - open source security platform https://github.com/wazuh
